@@ -1,0 +1,19 @@
+name: Build iOS App
+on: push
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+      - run: flutter pub get
+      - run: flutter build ios --debug --no-codesign
+      - run: |
+          cd build/ios/iphonesimulator
+          zip -r app.zip Runner.app
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ios-app
+          path: build/ios/iphonesimulator/app.zip
