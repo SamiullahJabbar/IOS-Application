@@ -1,16 +1,25 @@
-steps:
+name: Build iOS App
+on: push
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
       - uses: actions/checkout@v4
+      
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.2'
+          
       - run: flutter pub get
       
-      # Added the --simulator flag here
+      # This is the important fix from before
       - run: flutter build ios --debug --no-codesign --simulator
       
       - run: |
           cd build/ios/iphonesimulator
           zip -r app.zip Runner.app
+          
       - uses: actions/upload-artifact@v4
         with:
           name: ios-app
