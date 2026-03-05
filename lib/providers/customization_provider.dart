@@ -96,7 +96,7 @@ class CustomizationProvider extends ChangeNotifier {
 
   Map<String, dynamic> toMap() {
     return {
-      'colorValue': _selectedColor.value,
+      'colorValue': _selectedColor.toARGB32(),
       'material': _selectedMaterial,
       'pattern': _selectedPattern,
       'personalizationText': _personalizationText,

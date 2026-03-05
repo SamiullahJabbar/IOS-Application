@@ -49,6 +49,12 @@ class AuthService {
 
     await box.put(user.id, user);
 
+    // Automatically log in and skip onboarding after registration
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_isLoggedInKey, true);
+    await prefs.setString(_currentUserIdKey, user.id);
+    await prefs.setBool('onboarding_seen', true);
+
     return {'success': true, 'message': 'Account created successfully', 'userId': user.id};
   }
 
@@ -72,6 +78,7 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_isLoggedInKey, true);
     await prefs.setString(_currentUserIdKey, user.id);
+    await prefs.setBool('onboarding_seen', true);
 
     return {'success': true, 'message': 'Login successful', 'userId': user.id};
   }
@@ -137,5 +144,46 @@ class AuthService {
     await box.put(oldUser.id, updatedUser);
 
     return {'success': true, 'message': 'Password reset successful'};
+  }
+
+  static Future<Map<String, dynamic>> updateProfile({
+    required String userId,
+    String? fullName,
+    String? phone,
+    String? profileImageBase64,
+  }) async {
+    final box = await _getUserBox();
+    final user = box.get(userId);
+    if (user == null) {
+      return {'success': false, 'message': 'User not found'};
+    }
+
+    final updated = user.copyWith(
+      fullName: fullName,
+      phone: phone,
+      profileImageBase64: profileImageBase64,
+    );
+    await box.put(userId, updated);
+    return {'success': true, 'message': 'Profile updated', 'user': updated};
+  }
+
+  static Future<Map<String, dynamic>> changePassword({
+    required String userId,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final box = await _getUserBox();
+    final user = box.get(userId);
+    if (user == null) {
+      return {'success': false, 'message': 'User not found'};
+    }
+
+    if (user.passwordHash != hashPassword(currentPassword)) {
+      return {'success': false, 'message': 'Current password is incorrect'};
+    }
+
+    final updated = user.copyWith(passwordHash: hashPassword(newPassword));
+    await box.put(userId, updated);
+    return {'success': true, 'message': 'Password changed successfully'};
   }
 }

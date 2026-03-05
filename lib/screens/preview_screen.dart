@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vector_math/vector_math_64.dart' show Vector3;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -110,20 +111,16 @@ class _PreviewScreenState extends State<PreviewScreen>
             // 3D Preview
             Expanded(
               child: GestureDetector(
-                onPanStart: (details) {
-                  _lastPanOffset = details.localPosition;
+                onScaleStart: (details) {
+                  _lastPanOffset = details.focalPoint;
                   if (_autoRotate) _toggleAutoRotate();
-                },
-                onPanUpdate: (details) {
-                  setState(() {
-                    final delta = details.localPosition - _lastPanOffset;
-                    _rotationAngle += delta.dx * 0.01;
-                    _rotationX += delta.dy * 0.01;
-                    _lastPanOffset = details.localPosition;
-                  });
                 },
                 onScaleUpdate: (details) {
                   setState(() {
+                    final delta = details.focalPoint - _lastPanOffset;
+                    _rotationAngle += delta.dx * 0.01;
+                    _rotationX += delta.dy * 0.01;
+                    _lastPanOffset = details.focalPoint;
                     _scale = (_scale * details.scale).clamp(0.5, 3.0);
                   });
                 },
@@ -147,7 +144,7 @@ class _PreviewScreenState extends State<PreviewScreen>
                         ..setEntry(3, 2, 0.001)
                         ..rotateX(_rotationX)
                         ..rotateY(_rotationAngle)
-                        ..scale(_scale),
+                        ..scaleByVector3(Vector3(_scale, _scale, _scale)),
                       alignment: Alignment.center,
                       child: _buildPreviewModel(
                         bodyPart,
@@ -399,17 +396,17 @@ class _PreviewScreenState extends State<PreviewScreen>
   IconData _getBodyPartIcon(String bodyPart) {
     switch (bodyPart.toLowerCase()) {
       case 'hand':
-        return Icons.back_hand_rounded;
+        return Icons.front_hand_rounded;
       case 'knee':
-        return Icons.accessibility_new_rounded;
+        return Icons.airline_seat_legroom_extra_rounded;
       case 'ankle':
-        return Icons.directions_walk_rounded;
+        return Icons.do_not_step_rounded;
       case 'shoulder':
-        return Icons.sports_martial_arts_rounded;
+        return Icons.accessibility_new_rounded;
       case 'elbow':
-        return Icons.sports_handball_rounded;
+        return Icons.switch_access_shortcut_rounded;
       default:
-        return Icons.view_in_ar_rounded;
+        return Icons.radar_rounded;
     }
   }
 }

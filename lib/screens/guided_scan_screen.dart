@@ -256,7 +256,7 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
                     // Progress bar during scan
                     if (_scanStarted && !_scanComplete && !_isProcessing) ...[
                       Text(
-                        'Scanning ${bodyPart}...',
+                        'Scanning $bodyPart...',
                         style: const TextStyle(
                           color: AppTheme.textPrimary,
                           fontSize: 18,
@@ -438,17 +438,17 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
   IconData _getBodyPartIcon(String bodyPart) {
     switch (bodyPart.toLowerCase()) {
       case 'hand':
-        return Icons.back_hand_rounded;
+        return Icons.front_hand_rounded;
       case 'knee':
-        return Icons.accessibility_new_rounded;
+        return Icons.airline_seat_legroom_extra_rounded;
       case 'ankle':
-        return Icons.directions_walk_rounded;
+        return Icons.do_not_step_rounded;
       case 'shoulder':
-        return Icons.sports_martial_arts_rounded;
+        return Icons.accessibility_new_rounded;
       case 'elbow':
-        return Icons.sports_handball_rounded;
+        return Icons.switch_access_shortcut_rounded;
       default:
-        return Icons.view_in_ar_rounded;
+        return Icons.radar_rounded;
     }
   }
 }

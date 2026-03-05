@@ -222,7 +222,7 @@ class OrderConfirmationScreen extends StatelessWidget {
               // Action Buttons
               GradientButton(
                 text: 'Scan Another Body Part',
-                icon: Icons.view_in_ar_rounded,
+                icon: Icons.sensors_rounded,
                 onPressed: () {
                   // Clear session state
                   context.read<ScanProvider>().clearCurrentSession();

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
@@ -13,12 +11,17 @@ import '../screens/customization_screen.dart';
 import '../screens/preview_screen.dart';
 import '../screens/checkout_screen.dart';
 import '../screens/order_confirmation_screen.dart';
+import '../services/auth_service.dart';
 
 class AppRouter {
   static GoRouter router(BuildContext context) {
     return GoRouter(
-      initialLocation: '/onboarding',
+      initialLocation: '/splash',
       routes: [
+        GoRoute(
+          path: '/splash',
+          builder: (context, state) => const _SplashRedirect(),
+        ),
         GoRoute(
           path: '/onboarding',
           builder: (context, state) => const OnboardingScreen(),
@@ -64,6 +67,47 @@ class AppRouter {
           builder: (context, state) => const OrderConfirmationScreen(),
         ),
       ],
+    );
+  }
+}
+
+/// Splash widget that checks login state and redirects accordingly
+class _SplashRedirect extends StatefulWidget {
+  const _SplashRedirect();
+
+  @override
+  State<_SplashRedirect> createState() => _SplashRedirectState();
+}
+
+class _SplashRedirectState extends State<_SplashRedirect> {
+  @override
+  void initState() {
+    super.initState();
+    _redirect();
+  }
+
+  Future<void> _redirect() async {
+    final hasSeenOnboarding = await AuthService.hasSeenOnboarding();
+    final isLoggedIn = await AuthService.isLoggedIn();
+
+    if (!mounted) return;
+
+    if (!hasSeenOnboarding) {
+      context.go('/onboarding');
+    } else if (isLoggedIn) {
+      context.go('/home');
+    } else {
+      context.go('/login');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFF060A14),
+      body: Center(
+        child: CircularProgressIndicator(color: Color(0xFF3B82F6)),
+      ),
     );
   }
 }

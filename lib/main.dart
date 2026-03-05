@@ -12,6 +12,7 @@ import 'providers/customization_provider.dart';
 import 'providers/order_provider.dart';
 import 'utils/app_theme.dart';
 import 'utils/routes.dart';
+import 'services/stripe_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +46,9 @@ void main() async {
   await Hive.openBox<UserModel>('users');
   await Hive.openBox<ScanModel>('scans');
   await Hive.openBox<OrderModel>('orders');
+
+  // Initialize Stripe
+  StripeService.init();
 
   runApp(const BodyScanApp());
 }
