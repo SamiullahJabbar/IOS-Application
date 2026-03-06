@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:camera/camera.dart';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../providers/scan_provider.dart';
 import '../utils/app_theme.dart';
 import '../widgets/gradient_button.dart';
+import '../widgets/mesh_painter.dart';
 
 class GuidedScanScreen extends StatefulWidget {
   const GuidedScanScreen({super.key});
@@ -26,6 +29,12 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
   late AnimationController _pulseController;
   late AnimationController _cornersController;
 
+  // Camera
+  CameraController? _cameraController;
+  bool _isCameraInitialized = false;
+  bool _cameraPermissionDenied = false;
+  String? _cameraError;
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +52,55 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
+
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _cameraError = 'No camera found on this device';
+          });
+        }
+        return;
+      }
+
+      // Use the back camera
+      final backCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        backCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+
+      await _cameraController!.initialize();
+
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (e.toString().contains('permission') ||
+              e.toString().contains('Permission') ||
+              e.toString().contains('CameraAccessDenied')) {
+            _cameraPermissionDenied = true;
+            _cameraError = 'Camera permission denied. Please enable it in Settings.';
+          } else {
+            _cameraError = 'Could not initialize camera: ${e.toString()}';
+          }
+        });
+      }
+    }
   }
 
   @override
@@ -51,10 +109,14 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
     _scanLineController.dispose();
     _pulseController.dispose();
     _cornersController.dispose();
+    _cameraController?.dispose();
     super.dispose();
   }
 
   void _startScan() {
+    final provider = context.read<ScanProvider>();
+    provider.startScanning(); // Reset session state
+    
     setState(() {
       _scanStarted = true;
       _progress = 0.0;
@@ -79,7 +141,22 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
     setState(() => _isProcessing = true);
     context.read<ScanProvider>().startProcessing();
 
-    await Future.delayed(const Duration(seconds: 3));
+    // Capture multiple photos to simulate 3D mapping data during processing
+    try {
+      if (_cameraController != null && _cameraController!.value.isInitialized) {
+        for (int i = 0; i < 3; i++) {
+          final image = await _cameraController!.takePicture();
+          if (mounted) {
+            context.read<ScanProvider>().addCapturedImage(image.path);
+          }
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to capture images: $e');
+    }
+
+    await Future.delayed(const Duration(seconds: 1));
 
     if (!mounted) return;
 
@@ -90,6 +167,107 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
       _isProcessing = false;
       _scanComplete = true;
     });
+  }
+
+  Widget _buildCameraPreview() {
+    // Camera error / permission denied state
+    if (_cameraError != null) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.2,
+            colors: [
+              const Color(0xFF1a1a2e),
+              Colors.black.withValues(alpha: 0.95),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _cameraPermissionDenied
+                      ? Icons.no_photography_rounded
+                      : Icons.error_outline_rounded,
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.6),
+                  size: 64,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _cameraError!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 14,
+                  ),
+                ),
+                if (_cameraPermissionDenied) ...[
+                  const SizedBox(height: 16),
+                  TextButton.icon(
+                    onPressed: _initializeCamera,
+                    icon: const Icon(Icons.refresh_rounded,
+                        color: AppTheme.primaryBlue),
+                    label: const Text('Retry',
+                        style: TextStyle(color: AppTheme.primaryBlue)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Camera initializing state
+    if (!_isCameraInitialized || _cameraController == null) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.2,
+            colors: [
+              const Color(0xFF1a1a2e),
+              Colors.black.withValues(alpha: 0.95),
+            ],
+          ),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: AppTheme.primaryBlue,
+                strokeWidth: 2,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Initializing Camera...',
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Live camera preview
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: _cameraController!.value.previewSize?.height ?? 1,
+          height: _cameraController!.value.previewSize?.width ?? 1,
+          child: CameraPreview(_cameraController!),
+        ),
+      ),
+    );
   }
 
   @override
@@ -112,17 +290,15 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
       ),
       body: Stack(
         children: [
-          // Simulated camera background
-          Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 1.2,
-                colors: [
-                  const Color(0xFF1a1a2e),
-                  Colors.black.withValues(alpha: 0.95),
-                ],
-              ),
+          // Live camera background (replaces the old simulated gradient)
+          Positioned.fill(
+            child: _buildCameraPreview(),
+          ),
+
+          // Dark overlay for better UI contrast
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.3),
             ),
           ),
 
@@ -247,7 +423,7 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
                       ).animate().fadeIn(duration: 500.ms, delay: 200.ms),
                       const SizedBox(height: AppTheme.spacingLg),
                       GradientButton(
-                        text: 'Start LiDAR Scan',
+                        text: 'Start Scan',
                         icon: Icons.play_arrow_rounded,
                         onPressed: _startScan,
                       ).animate().fadeIn(duration: 500.ms, delay: 400.ms),
@@ -287,29 +463,77 @@ class _GuidedScanScreenState extends State<GuidedScanScreen>
 
                     // Processing
                     if (_isProcessing) ...[
-                      const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: CircularProgressIndicator(
-                          color: AppTheme.primaryBlue,
-                          strokeWidth: 3,
+                      SizedBox(
+                        height: 180,
+                        width: 180,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // 3D Mesh Building Animation
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: MeshPainter(
+                                  rotationX: 0.2,
+                                  rotationY: _progress * 4 * math.pi, // Spin while building
+                                  color: AppTheme.primaryBlue,
+                                  viewMode: _progress > 0.7 ? MeshViewMode.solid : MeshViewMode.wireframe,
+                                  bodyPart: bodyPart,
+                                  progress: _progress,
+                                  opacity: 0.6,
+                                ),
+                              ),
+                            ),
+                            
+                            if (_progress < 0.3)
+                              const CircularProgressIndicator(
+                                color: AppTheme.primaryBlue,
+                                strokeWidth: 2,
+                              ).animate().scale(duration: 400.ms),
+
+                            Icon(
+                              _progress > 0.8
+                                  ? Icons.view_in_ar_rounded
+                                  : Icons.grain_rounded,
+                              color: AppTheme.primaryBlue,
+                              size: 40,
+                            ).animate(onPlay: (c) => c.repeat(reverse: true))
+                             .scale(duration: 800.ms, begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2)),
+                          ],
                         ),
                       ),
                       const SizedBox(height: AppTheme.spacingMd),
                       const Text(
-                        'Processing 3D Model...',
+                        'Generating 3D Mesh...',
                         style: TextStyle(
                           color: AppTheme.textPrimary,
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Creating accurate 3D mesh from scan data',
-                        style: TextStyle(
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: 240,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: _progress,
+                            backgroundColor: AppTheme.cardBackground,
+                            valueColor: const AlwaysStoppedAnimation(AppTheme.primaryBlue),
+                            minHeight: 2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _progress < 0.4 
+                            ? 'Analyzing point cloud...' 
+                            : _progress < 0.7 
+                                ? 'Reconstructing surface geometry...' 
+                                : 'Finalizing high-fidelity 3D model...',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
                           color: AppTheme.textSecondary,
-                          fontSize: 14,
+                          fontSize: 13,
                         ),
                       ),
                     ],

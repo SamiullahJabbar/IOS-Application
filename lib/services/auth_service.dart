@@ -49,12 +49,6 @@ class AuthService {
 
     await box.put(user.id, user);
 
-    // Automatically log in and skip onboarding after registration
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_isLoggedInKey, true);
-    await prefs.setString(_currentUserIdKey, user.id);
-    await prefs.setBool('onboarding_seen', true);
-
     return {'success': true, 'message': 'Account created successfully', 'userId': user.id};
   }
 
@@ -78,7 +72,6 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_isLoggedInKey, true);
     await prefs.setString(_currentUserIdKey, user.id);
-    await prefs.setBool('onboarding_seen', true);
 
     return {'success': true, 'message': 'Login successful', 'userId': user.id};
   }

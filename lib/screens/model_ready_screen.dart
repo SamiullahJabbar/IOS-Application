@@ -1,11 +1,13 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:vector_math/vector_math_64.dart' show Vector3;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/scan_provider.dart';
 import '../utils/app_theme.dart';
 import '../widgets/gradient_button.dart';
+import '../widgets/robust_image_loader.dart';
+import '../widgets/mesh_painter.dart';
 
 class ModelReadyScreen extends StatefulWidget {
   const ModelReadyScreen({super.key});
@@ -14,55 +16,55 @@ class ModelReadyScreen extends StatefulWidget {
   State<ModelReadyScreen> createState() => _ModelReadyScreenState();
 }
 
-class _ModelReadyScreenState extends State<ModelReadyScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _rotationController;
-  double _rotationX = 0.3;
-  double _rotationY = 0.0;
+class _ModelReadyScreenState extends State<ModelReadyScreen> {
+  double _rotationX = 0;
+  double _rotationY = 0;
   double _scale = 1.0;
-  Offset _lastPanOffset = Offset.zero;
-
-  @override
-  void initState() {
-    super.initState();
-    _rotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 8),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _rotationController.dispose();
-    super.dispose();
-  }
-
-  void _resetView() {
-    setState(() {
-      _rotationX = 0.3;
-      _rotationY = 0.0;
-      _scale = 1.0;
-    });
-  }
+  Offset _lastFocalPoint = Offset.zero;
+  MeshViewMode _viewMode = MeshViewMode.solid;
 
   @override
   Widget build(BuildContext context) {
     final scanProvider = context.watch<ScanProvider>();
     final bodyPart = scanProvider.selectedBodyPart ?? 'Body Part';
+    final capturedImages = scanProvider.capturedImages;
+    
+    // Choose the best image based on rotation angle
+    String? currentImage;
+    if (capturedImages.isNotEmpty) {
+      if (capturedImages.length >= 3) {
+        if (_rotationY < -0.5) {
+          currentImage = capturedImages[0];
+        } else if (_rotationY > 0.5) {
+          currentImage = capturedImages[2];
+        } else {
+          currentImage = capturedImages[1];
+        }
+      } else {
+        currentImage = scanProvider.primaryImage;
+      }
+    }
 
     return Scaffold(
       backgroundColor: AppTheme.darkBackground,
       appBar: AppBar(
-        backgroundColor: AppTheme.darkBackground,
+        backgroundColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_rounded),
-          onPressed: () => context.go('/scan'),
+          onPressed: () => context.go('/home'),
         ),
         title: Text('$bodyPart 3D Model'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
-            onPressed: _resetView,
+            onPressed: () {
+              setState(() {
+                _rotationX = 0;
+                _rotationY = 0;
+                _scale = 1.0;
+                _viewMode = MeshViewMode.solid;
+              });
+            },
             tooltip: 'Reset View',
           ),
         ],
@@ -70,81 +72,211 @@ class _ModelReadyScreenState extends State<ModelReadyScreen>
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: AppTheme.spacingMd),
+            // View Mode Selectors
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLg),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildModeTab('Texture', MeshViewMode.xray, Icons.image_rounded),
+                  const SizedBox(width: 8),
+                  _buildModeTab('Mesh', MeshViewMode.solid, Icons.grid_view_rounded),
+                  const SizedBox(width: 8),
+                  _buildModeTab('Wireframe', MeshViewMode.wireframe, Icons.polyline_rounded),
+                ],
+              ),
+            ),
 
-            // 3D Model Viewer area
+            const SizedBox(height: 16),
+
+            // Interactive Image-Based 3D Viewer
             Expanded(
-              child: GestureDetector(
-                onScaleStart: (details) {
-                  _lastPanOffset = details.focalPoint;
-                },
-                onScaleUpdate: (details) {
-                  setState(() {
-                    final delta = details.focalPoint - _lastPanOffset;
-                    _rotationY += delta.dx * 0.01;
-                    _rotationX += delta.dy * 0.01;
-                    _lastPanOffset = details.focalPoint;
-                    _scale = (_scale * details.scale).clamp(0.5, 3.0);
-                  });
-                },
-                child: Container(
-                  margin: const EdgeInsets.symmetric(
-                      horizontal: AppTheme.spacingLg),
-                  decoration: BoxDecoration(
-                    color: AppTheme.cardBackground,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-                    border: Border.all(color: AppTheme.cardBorder),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingLg),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                  border: Border.all(color: AppTheme.cardBorder, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                      blurRadius: 30,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusXl - 2),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      GestureDetector(
+                        onScaleStart: (details) {
+                          _lastFocalPoint = details.focalPoint;
+                        },
+                        onScaleUpdate: (details) {
+                          setState(() {
+                            final dx = details.focalPoint.dx - _lastFocalPoint.dx;
+                            final dy = details.focalPoint.dy - _lastFocalPoint.dy;
+
+                            _rotationY += dx * 0.01;
+                            _rotationX -= dy * 0.01;
+                            _rotationX = _rotationX.clamp(-math.pi / 4, math.pi / 4);
+                            _scale = (_scale * details.scale).clamp(1.0, 3.0);
+                            _lastFocalPoint = details.focalPoint;
+                          });
+                        },
+                        child: Container(
+                          color: Colors.black,
+                          alignment: Alignment.center,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Scanned Image with Transform (Only if in Texture/Xray - here xray represents texture overlay)
+                              if (_viewMode == MeshViewMode.xray)
+                                Transform.scale(
+                                  scale: _scale,
+                                  child: Transform(
+                                    transform: Matrix4.identity()
+                                      ..setEntry(3, 2, 0.001)
+                                      ..rotateX(_rotationX)
+                                      ..rotateY(_rotationY * 0.5),
+                                    alignment: Alignment.center,
+                                    child: RobustImageLoader(
+                                      imagePath: currentImage,
+                                      fallbackLabel: '3D $bodyPart Scan\nProcessing mapping data...',
+                                    ),
+                                  ),
+                                ),
+
+                              // High-Fidelity 3D Mesh Overlay
+                              Positioned.fill(
+                                child: CustomPaint(
+                                  painter: MeshPainter(
+                                    rotationX: _rotationX,
+                                    rotationY: _rotationY,
+                                    color: AppTheme.primaryBlue,
+                                    viewMode: _viewMode,
+                                    bodyPart: bodyPart,
+                                    opacity: _viewMode == MeshViewMode.xray ? 0.3 : 1.0,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Top labels
+                      Positioned(
+                        top: 16,
+                        left: 16,
+                        right: 16,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryBlue.withValues(alpha: 0.2),
+                                borderRadius:
+                                    BorderRadius.circular(AppTheme.radiusFull),
+                                border: Border.all(
+                                    color: AppTheme.primaryBlue
+                                        .withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.view_in_ar_rounded,
+                                      color: AppTheme.primaryBlue, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '$bodyPart Scan',
+                                    style: const TextStyle(
+                                      color: AppTheme.primaryBlue,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppTheme.success.withValues(alpha: 0.2),
+                                borderRadius:
+                                    BorderRadius.circular(AppTheme.radiusFull),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.check_circle_rounded,
+                                      color: AppTheme.success, size: 14),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Processed',
+                                    style: TextStyle(
+                                      color: AppTheme.success,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      // Interaction hint
+                      Positioned(
+                        bottom: 16,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.7),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusFull),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.touch_app_rounded,
+                                    color: AppTheme.textSecondary, size: 16),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Drag to rotate · Pinch to zoom',
+                                  style: TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                  child: Center(
-                    child: Transform(
-                      transform: Matrix4.identity()
-                        ..setEntry(3, 2, 0.001)
-                        ..rotateX(_rotationX)
-                        ..rotateY(_rotationY)
-                        ..scaleByVector3(Vector3(_scale, _scale, _scale)),
-                      alignment: Alignment.center,
-                      child: AnimatedBuilder(
-                        animation: _rotationController,
-                        builder: (context, child) {
-                          return _build3DModelWidget(bodyPart);
-                        },
-                      ),
-                    ),
-                  ),
                 ),
               ).animate().fadeIn(duration: 600.ms).scale(
-                    begin: const Offset(0.9, 0.9),
+                    begin: const Offset(0.95, 0.95),
                     end: const Offset(1, 1),
                     duration: 600.ms,
                   ),
             ),
 
-            const SizedBox(height: AppTheme.spacingMd),
+            const SizedBox(height: AppTheme.spacingSm),
 
-            // Controls hint
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppTheme.spacingLg),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildHintChip(Icons.touch_app_rounded, 'Drag to rotate'),
-                  const SizedBox(width: AppTheme.spacingMd),
-                  _buildHintChip(Icons.pinch_rounded, 'Pinch to zoom'),
-                ],
-              ),
-            ).animate().fadeIn(duration: 500.ms, delay: 300.ms),
-
-            const SizedBox(height: AppTheme.spacingLg),
-
-            // Model info card
+            // Scan info card
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: AppTheme.spacingLg),
@@ -169,11 +301,11 @@ class _ModelReadyScreenState extends State<ModelReadyScreen>
                           color: AppTheme.success, size: 24),
                     ),
                     const SizedBox(width: AppTheme.spacingMd),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             'Scan Complete',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
@@ -181,8 +313,8 @@ class _ModelReadyScreenState extends State<ModelReadyScreen>
                             ),
                           ),
                           Text(
-                            'High accuracy 3D model ready',
-                            style: TextStyle(
+                            'High accuracy mapping of $bodyPart ready',
+                            style: const TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 13,
                             ),
@@ -190,29 +322,12 @@ class _ModelReadyScreenState extends State<ModelReadyScreen>
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppTheme.success.withValues(alpha: 0.15),
-                        borderRadius:
-                            BorderRadius.circular(AppTheme.radiusFull),
-                      ),
-                      child: const Text(
-                        '90%',
-                        style: TextStyle(
-                          color: AppTheme.success,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
-            ).animate().fadeIn(duration: 500.ms, delay: 400.ms),
+            ).animate().fadeIn(duration: 500.ms, delay: 200.ms),
 
-            const SizedBox(height: AppTheme.spacingLg),
+            const SizedBox(height: AppTheme.spacingMd),
 
             // Action buttons
             Padding(
@@ -249,7 +364,7 @@ class _ModelReadyScreenState extends State<ModelReadyScreen>
                   ),
                 ],
               ),
-            ).animate().fadeIn(duration: 500.ms, delay: 500.ms),
+            ).animate().fadeIn(duration: 500.ms, delay: 300.ms),
 
             const SizedBox(height: AppTheme.spacingLg),
           ],
@@ -257,104 +372,41 @@ class _ModelReadyScreenState extends State<ModelReadyScreen>
       ),
     );
   }
-
-  Widget _build3DModelWidget(String bodyPart) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Simulated 3D wireframe model representation
-        Stack(
-          alignment: Alignment.center,
+  Widget _buildModeTab(String label, MeshViewMode mode, IconData icon) {
+    bool isSelected = _viewMode == mode;
+    return GestureDetector(
+      onTap: () => setState(() => _viewMode = mode),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryBlue.withValues(alpha: 0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryBlue : AppTheme.cardBorder,
+            width: 1,
+          ),
+        ),
+        child: Row(
           children: [
-            // Outer glow
-            Container(
-              width: 180,
-              height: 180,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryBlue.withValues(alpha: 0.15),
-                    blurRadius: 60,
-                    spreadRadius: 10,
-                  ),
-                ],
-              ),
-            ),
-            // Wireframe rings
-            for (int i = 0; i < 3; i++)
-              Container(
-                width: 120 + (i * 30.0),
-                height: 120 + (i * 30.0),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppTheme.primaryBlue
-                        .withValues(alpha: 0.15 - (i * 0.04)),
-                    width: 1,
-                  ),
-                ),
-              ),
-            // Body part icon
             Icon(
-              _getBodyPartIcon(bodyPart),
-              size: 80,
-              color: AppTheme.primaryBlue.withValues(alpha: 0.8),
+              icon,
+              size: 16,
+              color: isSelected ? AppTheme.primaryBlue : AppTheme.textSecondary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
             ),
           ],
         ),
-        const SizedBox(height: AppTheme.spacingMd),
-        Text(
-          bodyPart,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 16,
-            letterSpacing: 2,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHintChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.cardBackground,
-        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-        border: Border.all(color: AppTheme.cardBorder),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppTheme.textTertiary),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(
-              color: AppTheme.textTertiary,
-              fontSize: 12,
-            ),
-          ),
-        ],
       ),
     );
-  }
-
-  IconData _getBodyPartIcon(String bodyPart) {
-    switch (bodyPart.toLowerCase()) {
-      case 'hand':
-        return Icons.front_hand_rounded;
-      case 'knee':
-        return Icons.airline_seat_legroom_extra_rounded;
-      case 'ankle':
-        return Icons.do_not_step_rounded;
-      case 'shoulder':
-        return Icons.accessibility_new_rounded;
-      case 'elbow':
-        return Icons.switch_access_shortcut_rounded;
-      default:
-        return Icons.radar_rounded;
-    }
   }
 }
+
+
