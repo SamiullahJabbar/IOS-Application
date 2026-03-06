@@ -1,25 +1,23 @@
 name: Build iOS App
 on: push
-
 jobs:
   build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.2'
-          
       - run: flutter pub get
-      
-      # This is the important fix from before
+      - run: flutter build apk --debug
       - run: flutter build ios --debug --no-codesign --simulator
-      
       - run: |
           cd build/ios/iphonesimulator
           zip -r app.zip Runner.app
-          
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: ios-app
